@@ -1,35 +1,8 @@
-import os, sys, argparse
+import os, argparse
 from twisted.internet import defer
-from twisted.internet.protocol import Protocol, ClientFactory
+from twisted.internet.protocol import ClientFactory
 from twisted.protocols.basic import NetstringReceiver
 
-class QueryProtocol(Protocol):
-    response = ''
-
-    def dataReceived(self, data):
-        self.response = data
-
-    def connectionLost(self, reason):
-        self.responseReceived(self.response)
-
-    def responseReceived(self, response):
-        self.factory.response_finished(response)
-
-class QueryFactory(ClientFactory):
-    protocol = QueryProtocol
-
-    def __init__(self, deferred):
-        self.deferred = deferred
-
-    def response_finished(self, response):
-        if self.deferred is not None:
-            d, self.deferred = self.deferred, None
-            d.callback(response)
-
-    def clientConnectionFailed(self, connector, reason):
-        if self.deferred is not None:
-            d, self.deferred = self.deferred, None
-            d.errback(reason)
 
 class QueryNetProtocol(NetstringReceiver):
     def connectionMade(self):
@@ -44,6 +17,7 @@ class QueryNetProtocol(NetstringReceiver):
 
     def responseReceived(self, response):
         self.factory.handleResponse(response)
+
 
 class QueryNetFactory(ClientFactory):
     protocol = QueryNetProtocol
@@ -64,6 +38,7 @@ class QueryNetFactory(ClientFactory):
 
     clientConnectionFailed = clientConnectionLost
 
+
 class QueryProxy(object):
     def __init__(self, host, port):
         self.host = host
@@ -75,61 +50,45 @@ class QueryProxy(object):
         reactor.connectTCP(self.host, self.port, factory)
         return factory.deferred
 
-def perform_query(host, port):
-    d = defer.Deferred()
-    from twisted.internet import reactor
-    factory = QueryFactory(d)
-    reactor.connectTCP(host, port, factory)
-    return d
 
 def main(options):
-    done = False
-    query_result = ""
+    from twisted.internet import reactor
+
     host = options.host
     port = int(options.port)
     sha1 = options.sha1
     proxy = QueryProxy(host, port)
-    from twisted.internet import reactor
-    
-    def process_query_result(response):
-        d = proxy.query('sha1', sha1)
-        
-        def fail(err):
-            print "Problem in processing response : %s" % err
-            return response
-
-        return d.addErrback(fail)
 
     def query_ok(response):
-        query_result = response
-        done = True
+        print "The result of the query is : %s" % response
 
     def query_failed(err):
-        print  "Problem in query : %s" % err
-        done = True
+        print "Problem in query : %s" % err
 
     def query_done(_):
-        if done == True: reactor.stop()
+        reactor.stop()
 
-    d = perform_query(host, port)
-    d.addCallback(process_query_result)
+    d = proxy.query('sha1', sha1)
     d.addCallbacks(query_ok, query_failed)
     d.addBoth(query_done)
     reactor.run()
-    print "The result of the query is : %s" % query_result
+
 
 def _showBanner():
-    if os.name == "nt": os.system("cls")
-    elif os.name == "posix": os.system("clear")
+    if os.name == "nt":
+        os.system("cls")
+    elif os.name == "posix":
+        os.system("clear")
     print "**************************************"
     print "*   GRID DeCentralized Client v1.0   *"
     print "**************************************"
+
 
 if __name__ == "__main__":
     _showBanner()
     parser = argparse.ArgumentParser()
     parser.add_argument("host", help="server host/ip")
     parser.add_argument("port", help="server port number to listen to")
-    parser.add_argument("-sha1", help="sha1 value to be queried")
+    parser.add_argument("--sha1", help="sha1 value to be queried")
     options = parser.parse_args()
     main(options)
